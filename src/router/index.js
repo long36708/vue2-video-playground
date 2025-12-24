@@ -38,6 +38,11 @@ const routes = [
     path: '/video-decoder',
     name: 'VideoDecoder',
     component: () => import('../views/VideoDecoder.vue')
+  },
+  {
+    path: '/mp4-analyzer',
+    name: 'Mp4Analyzer',
+    component: () => import('../views/Mp4Analyzer.vue')
   }
 ];
 

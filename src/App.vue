@@ -7,7 +7,8 @@
       <router-link to="/no-keep-alive">无Keep-Alive</router-link> |
       <router-link to="/user-profile?id=1">用户资料(keep-alive)</router-link> |
       <router-link to="/video-analyzer">视频分析器</router-link> |
-      <router-link to="/video-decoder">视频解码器</router-link>
+      <router-link to="/video-decoder">视频解码器</router-link> |
+      <router-link to="/mp4-analyzer">MP4分析器</router-link>
     </div>
     <keep-alive include="CounterPage,UserProfilePage">
       <router-view/>
