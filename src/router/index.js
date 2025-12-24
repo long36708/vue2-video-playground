@@ -28,6 +28,11 @@ const routes = [
     path: '/user-profile',
     name: 'UserProfile',
     component: () => import('../views/UserProfile.vue')
+  },
+  {
+    path: '/video-analyzer',
+    name: 'VideoAnalyzer',
+    component: () => import('../views/VideoAnalyzer.vue')
   }
 ];
 
