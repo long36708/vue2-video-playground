@@ -1,9 +1,9 @@
 /**
  * @Author: longmo
  * @Date: 2025-12-24 23:01:23
- * @LastEditTime: 2025-12-24 23:01:37
+ * @LastEditTime: 2025-12-24 23:39:34
  * @FilePath: src/utils/videoDecoder.js
- * @Description:
+ * @Description: 这个工具类当前可能存在问题，需要进一步测试
  */
 import * as MP4Box from 'mp4box';
 
@@ -49,6 +49,31 @@ class Writer {
  * @returns {*}
  */
 const getExtradata = (avccBox) => {
+    // Validate input
+    if (!avccBox) {
+        throw new Error('AVCC box is undefined');
+    }
+    
+    if (!avccBox.SPS || !Array.isArray(avccBox.SPS)) {
+        throw new Error('SPS (Sequence Parameter Set) not found in AVCC box');
+    }
+    
+    if (!avccBox.PPS || !Array.isArray(avccBox.PPS)) {
+        throw new Error('PPS (Picture Parameter Set) not found in AVCC box');
+    }
+    
+    // Validate required fields
+    const requiredFields = [
+        'configurationVersion', 'AVCProfileIndication', 'profile_compatibility',
+        'AVCLevelIndication', 'lengthSizeMinusOne', 'nb_SPS_nalus', 'nb_PPS_nalus'
+    ];
+    
+    for (const field of requiredFields) {
+        if (avccBox[field] === undefined) {
+            throw new Error(`Required field '${field}' not found in AVCC box`);
+        }
+    }
+    
     let i;
     let size = 7;
     for (i = 0; i < avccBox.SPS.length; i += 1) {
@@ -145,17 +170,30 @@ const decodeVideo = (
                     [{ codec }] = info.videoTracks;
                     if (debug) console.info('Video with codec:', codec);
 
-                    // Gets the avccbox used for reading extradata
-                    const avccBox =
-                        mp4boxfile.moov.traks[0].mdia.minf.stbl.stsd.entries[0].avcC;
-                    const extradata = getExtradata(avccBox);
+                    try {
+                        // Gets the avccbox used for reading extradata
+                        const track = mp4boxfile.moov.traks[0];
+                        if (!track || !track.mdia || !track.mdia.minf || !track.mdia.minf.stbl || !track.mdia.minf.stbl.stsd || !track.mdia.minf.stbl.stsd.entries || !track.mdia.minf.stbl.stsd.entries[0]) {
+                            throw new Error('Invalid MP4 structure: missing required boxes');
+                        }
+                        
+                        const avccBox = track.mdia.minf.stbl.stsd.entries[0].avcC;
+                        if (!avccBox) {
+                            throw new Error('Video codec not supported or not AVC/H.264');
+                        }
+                        
+                        const extradata = getExtradata(avccBox);
 
-                    // configure decoder
-                    decoder.configure({ codec, description: extradata });
+                        // configure decoder
+                        decoder.configure({ codec, description: extradata });
 
-                    // Setup mp4box file for breaking it into chunks
-                    mp4boxfile.setExtractionOptions(info.videoTracks[0].id);
-                    mp4boxfile.start();
+                        // Setup mp4box file for breaking it into chunks
+                        mp4boxfile.setExtractionOptions(info.videoTracks[0].id);
+                        mp4boxfile.start();
+                    } catch (err) {
+                        if (debug) console.error('Error setting up decoder:', err);
+                        reject(new Error(`Decoder setup failed: ${err.message}`));
+                    }
                 } else reject(new Error('URL provided is not a valid mp4 video file.'));
             };
 
@@ -177,6 +215,14 @@ const decodeVideo = (
 
             // Fetches the file into arraybuffers
             fetch(src).then((res) => {
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                
+                if (!res.body) {
+                    throw new Error('Response body is empty');
+                }
+                
                 const reader = res.body.getReader();
                 let offset = 0;
 
@@ -184,6 +230,10 @@ const decodeVideo = (
                     if (done) {
                         mp4boxfile.flush();
                         return null;
+                    }
+
+                    if (!value || !value.buffer) {
+                        throw new Error('Invalid chunk received');
                     }
 
                     const buf = value.buffer;
@@ -195,6 +245,9 @@ const decodeVideo = (
                 }
 
                 return reader.read().then(appendBuffers);
+            }).catch((fetchError) => {
+                if (debug) console.error('Fetch error:', fetchError);
+                reject(new Error(`Failed to fetch video: ${fetchError.message}`));
             });
         } catch (e) {
             reject(e);

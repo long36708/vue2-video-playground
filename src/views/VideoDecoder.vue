@@ -20,6 +20,19 @@
         </button>
       </div>
 
+      <div class="file-input-group">
+        <label for="videoFile">或选择本地视频:</label>
+        <input 
+          id="videoFile"
+          type="file" 
+          accept="video/mp4"
+          @change="handleFileSelect"
+        />
+        <button @click="loadLocalFile" :disabled="!selectedFile || loading">
+          {{ loading ? '加载中...' : '加载本地视频' }}
+        </button>
+      </div>
+
       <div class="preset-videos">
         <label>预设视频:</label>
         <button 
@@ -28,7 +41,7 @@
           @click="selectPresetVideo(url)"
           :class="{ active: videoUrl === url }"
         >
-          示例视频 {{ index + 1 }}
+          {{ presetVideos[index].name }}
         </button>
       </div>
 
@@ -197,12 +210,25 @@ export default {
       bufferSize: 0,
       memoryUsage: '0 MB',
       
-      // 预设视频URL（使用公开的示例视频）
+ // 预设视频URL（使用支持CORS的公开示例视频）
       presetVideos: [
-        'https://test-videos.co.uk/vids/bigbuckbunny/mp4/h264/360/Big_Buck_Bunny_360_10s_1MB.mp4',
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4',
-        'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4'
+        { 
+          url: 'https://www.w3schools.com/html/mov_bbb.mp4', 
+          name: 'Big Buck Bunny (小)' 
+        },
+        { 
+          url: '/石川由依翻唱MV中日歌词三笠亲自唱恶魔之子.mp4', 
+          name: '本地测试视频' 
+        },
+        { 
+          url: 'https://sample-videos.com/zip/10/mp4/SampleVideo_1280x720_1mb.mp4', 
+          name: 'Sample Video' 
+        }
       ],
+      
+      // 本地文件相关
+      selectedFile: null,
+      localFileUrl: null,
       
       // 动画相关
       animationId: null,
@@ -242,14 +268,77 @@ export default {
       }
     },
     
-    selectPresetVideo(url) {
+    selectPresetVideo(preset) {
+      const url = typeof preset === 'string' ? preset : preset.url;
       this.videoUrl = url;
       this.loadVideo();
     },
     
+    handleFileSelect(event) {
+      const file = event.target.files[0];
+      
+      if (!file) {
+        this.selectedFile = null;
+        return;
+      }
+      
+      // 验证文件类型
+      if (file.type !== 'video/mp4') {
+        this.error = `不支持的文件格式: ${file.type}，请选择MP4视频文件`;
+        this.addDebugLog(`文件格式错误: ${file.type}`, 'error');
+        this.selectedFile = null;
+        return;
+      }
+      
+      // 验证文件大小（建议不超过 500MB）
+      const maxSize = 500 * 1024 * 1024; // 500MB
+      if (file.size > maxSize) {
+        this.error = `文件过大: ${(file.size / (1024 * 1024)).toFixed(2)}MB，请选择小于500MB的文件`;
+        this.addDebugLog(`文件过大: ${(file.size / (1024 * 1024)).toFixed(2)}MB`, 'error');
+        this.selectedFile = null;
+        return;
+      }
+      
+      this.selectedFile = file;
+      this.error = ''; // 清除之前的错误
+      
+      const fileSizeMB = (file.size / (1024 * 1024)).toFixed(2);
+      this.addDebugLog(`选择本地文件: ${file.name} (${fileSizeMB}MB)`, 'success');
+    },
+    
+    loadLocalFile() {
+      if (!this.selectedFile) {
+        this.error = '请先选择一个视频文件';
+        return;
+      }
+      
+      try {
+        // 清理之前的本地文件URL
+        if (this.localFileUrl) {
+          URL.revokeObjectURL(this.localFileUrl);
+        }
+        
+        // 创建新的本地文件URL
+        this.localFileUrl = URL.createObjectURL(this.selectedFile);
+        this.videoUrl = this.localFileUrl;
+        
+        // 验证文件大小（建议不超过 200MB）
+        const fileSizeMB = this.selectedFile.size / (1024 * 1024);
+        if (fileSizeMB > 200) {
+          this.addDebugLog(`文件较大: ${fileSizeMB.toFixed(2)}MB，解码可能较慢`, 'warn');
+        }
+        
+        this.addDebugLog(`创建本地URL: ${this.selectedFile.name} (${fileSizeMB.toFixed(2)}MB)`, 'info');
+        this.loadVideo();
+      } catch (err) {
+        this.error = `创建本地文件URL失败: ${err.message}`;
+        this.addDebugLog(`本地文件处理失败: ${err.message}`, 'error');
+      }
+    },
+    
     async loadVideo() {
       if (!this.videoUrl.trim()) {
-        this.error = '请输入有效的视频URL';
+        this.error = '请输入有效的视频URL或选择本地文件';
         return;
       }
       
@@ -260,6 +349,8 @@ export default {
       this.addDebugLog(`开始加载视频: ${this.videoUrl}`, 'info');
       
       try {
+        // 预检查视频URL是否可访问
+        await this.validateVideoUrl();
         await this.startDecoding();
         this.hasVideo = true;
         this.status = '视频加载完成';
@@ -272,8 +363,57 @@ export default {
         this.error = `加载失败: ${err.message}`;
         this.status = '';
         this.addDebugLog(`加载失败: ${err.message}`, 'error');
+        console.error('Video loading error:', err);
+        
+        // 根据错误类型提供用户友好的建议
+        if (err.message.includes('AVC/H.264')) {
+          this.error = '不支持的视频编码格式，请使用 H.264/AVC 编码的 MP4 文件';
+        } else if (err.message.includes('Invalid MP4 structure')) {
+          this.error = '无效的 MP4 文件格式，请确认文件完整性';
+        } else if (err.message.includes('SPS') || err.message.includes('PPS')) {
+          this.error = '视频编码参数缺失，请尝试其他 MP4 文件';
+        } else if (err.message.includes('Failed to fetch')) {
+          this.error = '网络获取失败，请检查 URL 或使用本地文件';
+        }
       } finally {
         this.loading = false;
+      }
+    },
+    
+    async validateVideoUrl() {
+      try {
+        // 检查是否为本地 blob URL 或 data URL
+        if (this.videoUrl.startsWith('blob:') || this.videoUrl.startsWith('data:')) {
+          this.addDebugLog('检测到本地文件，跳过URL验证', 'info');
+          return; // 本地文件不需要验证
+        }
+        
+        // 检查是否为相对路径（本地资源）
+        if (this.videoUrl.startsWith('/') && !this.videoUrl.startsWith('//')) {
+          this.addDebugLog('检测到本地资源，跳过URL验证', 'info');
+          return; // 本地资源不需要验证
+        }
+        
+        const response = await fetch(this.videoUrl, { 
+          method: 'HEAD',
+          mode: 'cors' 
+        });
+        
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('video/mp4')) {
+          throw new Error('URL不指向MP4视频文件');
+        }
+        
+        this.addDebugLog(`视频验证通过: ${contentType}`, 'success');
+      } catch (err) {
+        if (err.message.includes('Failed to fetch') || err.message.includes('CORS')) {
+          throw new Error('CORS错误或网络无法访问该URL，请尝试本地文件或其他URL');
+        }
+        throw err;
       }
     },
     
@@ -446,9 +586,27 @@ export default {
     },
     
     cleanup() {
+      // 停止播放
       this.pausePlayback();
-      this.frameBuffer.forEach(frame => frame.bitmap.close());
+      
+      // 释放所有帧资源
+      this.frameBuffer.forEach(frame => {
+        if (frame.bitmap) {
+          frame.bitmap.close();
+        }
+      });
       this.frameBuffer = [];
+      
+      // 清理本地文件URL
+      if (this.localFileUrl) {
+        URL.revokeObjectURL(this.localFileUrl);
+        this.localFileUrl = null;
+      }
+      
+      // 清理选中文件
+      this.selectedFile = null;
+      
+      this.addDebugLog('资源已清理', 'info');
     }
   }
 };
@@ -484,19 +642,19 @@ export default {
   margin-bottom: 20px;
 }
 
-.input-group {
+.input-group, .file-input-group {
   display: flex;
   gap: 10px;
   align-items: center;
   margin-bottom: 15px;
 }
 
-.input-group label {
+.input-group label, .file-input-group label {
   font-weight: 500;
   min-width: 80px;
 }
 
-.input-group input {
+.input-group input, .file-input-group input[type="text"] {
   flex: 1;
   padding: 8px 12px;
   border: 1px solid #ddd;
@@ -504,7 +662,13 @@ export default {
   font-size: 14px;
 }
 
-.input-group button {
+.file-input-group input[type="file"] {
+  flex: 1;
+  padding: 6px 0;
+  font-size: 14px;
+}
+
+.input-group button, .file-input-group button {
   padding: 8px 16px;
   background: #42b983;
   color: white;
@@ -514,7 +678,7 @@ export default {
   font-size: 14px;
 }
 
-.input-group button:disabled {
+.input-group button:disabled, .file-input-group button:disabled {
   background: #ccc;
   cursor: not-allowed;
 }
