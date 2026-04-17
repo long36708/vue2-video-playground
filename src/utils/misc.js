@@ -1,7 +1,7 @@
 /**
  * @Author: longmo
  * @Date: 2025-12-24 23:55:52
- * @LastEditTime: 2025-12-24 23:56:17
+ * @LastEditTime: 2026-03-15 21:01:48
  * @FilePath: src/utils/misc.js
  * @Description:
  */
@@ -12,7 +12,7 @@
  * Use to find the MP4 moov atom, which is located only at either end
  * of an MP4 file.
  */
-export function* chunkBlobFromBothEnds(blob: Blob, chunkSize = 2**20) {
+export function* chunkBlobFromBothEnds(blob, chunkSize = 2**20) {
     const maxNumChunks = Math.ceil(blob.size / chunkSize);
     const paddedBlobSize = (blob.size % chunkSize > 0)
         ? maxNumChunks * chunkSize
@@ -21,8 +21,8 @@ export function* chunkBlobFromBothEnds(blob: Blob, chunkSize = 2**20) {
     let numChunkedFront = 0;
     let numChunkedBack = 0;
     while (numChunkedFront + numChunkedBack < maxNumChunks) {
-        let chunkStart: number
-        let chunkEnd: number;
+        let chunkStart
+        let chunkEnd;
         if (numChunkedFront <= numChunkedBack) {
             // chunk from front
             chunkStart = numChunkedFront * chunkSize;
